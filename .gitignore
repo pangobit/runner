@@ -1,0 +1,18 @@
+# Go
+bin/
+vendor/
+
+# Docker
+docker-compose.yml
+docker-compose.yaml
+
+# IDE files
+.idea/
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+runner 

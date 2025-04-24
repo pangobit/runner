@@ -1,0 +1,5 @@
+server:
+  port: 8080 
+actions:
+  composeFiles:
+    - compose/docker-compose.sample.yaml

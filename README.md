@@ -45,10 +45,7 @@ Here's a sample `docker-compose.yml` for running the Runner app:
 version: '3.8'
 services:
   runner:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: runner-app:latest
+    image: ghcr.io/pangobit/runner:latest
     container_name: runner-app
     ports:
       - "${PORT:-8080}:8080"

@@ -1,11 +1,15 @@
 # Dockerfile for Runner app
+# Use specific Alpine version for security and stability
 FROM golang:1.24-alpine AS builder
+
+# Create a non-root user and group for building
+RUN addgroup -S runner && adduser -S runner -G runner
 
 # Set working directory
 WORKDIR /app
 
 # Copy go mod and sum files
-COPY go.mod .
+COPY go.mod go.sum ./
 
 # Download dependencies
 RUN go mod download
@@ -13,31 +17,42 @@ RUN go mod download
 # Copy the source code
 COPY . .
 
-# Build the application
-RUN go build -o runner .
+# Build the application with security flags enabled
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags "-w -s -extldflags '-static'" -o runner .
 
-# Final stage
-FROM alpine:latest
+# Scan the application for security vulnerabilities
+RUN apk add --no-cache ca-certificates
 
-# Set working directory
-WORKDIR /app
+# Run tests
+RUN go test -v ./...
+
+# Final stage - use distroless for minimal attack surface
+FROM gcr.io/distroless/static:nonroot
+
+# Set the RUNNER_AUTH_TOKEN from build-arg (default to empty)
+ARG RUNNER_AUTH_TOKEN=""
+ENV RUNNER_AUTH_TOKEN=$RUNNER_AUTH_TOKEN
 
 # Copy the binary from builder
-COPY --from=builder /app/runner .
+COPY --from=builder /app/runner /app/runner
+# Copy default config
+COPY config.yaml /app/
 
-# Install Docker CLI and docker-compose
-RUN apk add --no-cache docker-cli docker-compose
+# Use the nonroot user from the distroless image
+USER nonroot:nonroot
 
 # Expose the port (will be overridden by config)
 EXPOSE 8080
 
-# Define volumes for config and compose files
-VOLUME /app/config
-VOLUME /app/compose
-
-# Note: This container includes Docker CLI and docker-compose to interact with the host's Docker daemon
-# via the mounted Docker socket (/var/run/docker.sock).
+# Metadata as defined in OCI image spec annotations
+# https://github.com/opencontainers/image-spec/blob/master/annotations.md
+LABEL org.opencontainers.image.title="Runner"
+LABEL org.opencontainers.image.description="A simple web server that executes docker-compose commands via webhook"
+LABEL org.opencontainers.image.url="https://github.com/pangobit/runner"
+LABEL org.opencontainers.image.source="https://github.com/pangobit/runner"
+LABEL org.opencontainers.image.vendor="pangobit"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # Command to run the application
-# Users can override the config path with -config flag if needed
-CMD ["./runner", "-config", "/app/config/config.yaml"] 
+ENTRYPOINT ["/app/runner"]
+ 

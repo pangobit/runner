@@ -1,124 +1,80 @@
 package main
 
 import (
-	"context"
-	"flag"
 	"fmt"
-	"log/slog"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
-	"strconv"
-	"syscall"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the application configuration
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Actions ActionsConfig `yaml:"actions"`
+	Port     int      `yaml:"port"`
+	Commands []string `yaml:"commands"`
 }
 
-// ServerConfig holds server-related configuration
-type ServerConfig struct {
-	Port int `yaml:"port"`
-}
-
-// ActionsConfig holds action-related configuration
-type ActionsConfig struct {
-	ComposeFiles []string `yaml:"composeFiles"`
-}
-
-var config Config
-
-func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
-	configPath := flag.String("config", "config/config.yaml", "Path to configuration YAML file")
-	flag.Parse()
-
-	if err := loadConfig(*configPath); err != nil {
-		slog.Error("Failed to load config", "error", err, "path", *configPath)
-		os.Exit(1)
-	}
-
-	handler := http.NewServeMux()
-	handler.HandleFunc("/health", healthHandler)
-	handler.HandleFunc("/update", updateHandler)
-
-	srv := &http.Server{
-		Addr:         ":" + strconv.Itoa(config.Server.Port),
-		Handler:      handler,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	go func() {
-		slog.Info("Starting server", "port", config.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server error", "error", err)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	slog.Info("Shutting down server")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("Server forced to shutdown", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("Server exiting")
-}
-
-func loadConfig(path string) error {
+func loadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return yaml.Unmarshal(data, &config)
+	var config Config
+	err = yaml.Unmarshal(data, &config)
+	return &config, err
+}
+
+func getAuthToken() string {
+	token := os.Getenv("RUNNER_AUTH_TOKEN")
+	if token == "" {
+		log.Fatal("RUNNER_AUTH_TOKEN environment variable not set")
+	}
+	return token
+}
+
+func execCommand(command string) {
+	cmd := exec.Command("sh", "-c", command)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Command '%s' failed: %s\n", command, err)
+	}
+	log.Printf("Output for '%s': %s\n", command, output)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "OK")
 }
 
-func updateHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Received update webhook")
+func updateHandler(config *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		expectedToken := "Bearer " + getAuthToken()
 
-	for _, filePath := range config.Actions.ComposeFiles {
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			slog.Error("Compose file does not exist", "file", filePath)
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintln(w, "Compose file does not exist:", filePath)
+		if token != expectedToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+
+		for _, cmd := range config.Commands {
+			execCommand(cmd)
+		}
+
+		fmt.Fprintln(w, "Update triggered successfully")
+	}
+}
+
+func main() {
+	config, err := loadConfig("config.yaml")
+	if err != nil {
+		log.Fatalf("error loading config: %v", err)
 	}
 
-	w.WriteHeader(http.StatusAccepted)
-	fmt.Fprintln(w, "Update process started")
+	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/update", updateHandler(config))
 
-	go func() {
-		for _, filePath := range config.Actions.ComposeFiles {
-			slog.Info("Executing docker-compose command", "file", filePath)
-			cmd := exec.Command("docker-compose", "-f", filePath, "up", "-d")
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				slog.Error("Error executing command", "file", filePath, "error", err, "output", string(output))
-				continue
-			}
-			slog.Info("Command executed successfully", "file", filePath, "output", string(output))
-		}
-	}()
+	log.Printf("Server running on port %d\n", config.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil))
 }
+
+

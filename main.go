@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -28,7 +28,8 @@ func loadConfig(path string) (*Config, error) {
 func getAuthToken() string {
 	token := os.Getenv("RUNNER_AUTH_TOKEN")
 	if token == "" {
-		log.Fatal("RUNNER_AUTH_TOKEN environment variable not set")
+		slog.Error("RUNNER_AUTH_TOKEN environment variable not set")
+		os.Exit(1)
 	}
 	return token
 }
@@ -37,9 +38,9 @@ func execCommand(command string) {
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Command '%s' failed: %s\n", command, err)
+		slog.Error("Command execution failed", "command", command, "error", err)
 	}
-	log.Printf("Output for '%s': %s\n", command, output)
+	slog.Info("Command output", "command", command, "output", string(output))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -65,16 +66,29 @@ func updateHandler(config *Config) http.HandlerFunc {
 }
 
 func main() {
+	// Setup structured JSON logger for OTEL and log scraper compatibility
+	logOpts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		AddSource: true,
+	}
+	logHandler := slog.NewJSONHandler(os.Stdout, logOpts)
+	slog.SetDefault(slog.New(logHandler))
+
 	config, err := loadConfig("config.yaml")
 	if err != nil {
-		log.Fatalf("error loading config: %v", err)
+		slog.Error("Failed to load config", "error", err)
+		os.Exit(1)
 	}
 
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/update", updateHandler(config))
 
-	log.Printf("Server running on port %d\n", config.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil))
+	slog.Info("Server started", "port", config.Port)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil)
+	if err != nil {
+		slog.Error("Server failed", "error", err)
+		os.Exit(1)
+	}
 }
 
 

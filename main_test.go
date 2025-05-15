@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,13 @@ import (
 )
 
 func TestUpdateHandler_Auth(t *testing.T) {
+	logOpts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		AddSource: true,
+	}
+	logHandler := slog.NewJSONHandler(os.Stdout, logOpts)
+	slog.SetDefault(slog.New(logHandler))
+
 	config := &Config{
 		Commands: []string{"echo 'test'"},
 	}

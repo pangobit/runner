@@ -5,10 +5,23 @@ A simple Go web server that executes docker-compose commands via webhook.
 ## Usage
 
 1. Configure the server port and commands in `config.yaml`
-2. Run the server with `go run main.go`
-3. The server exposes:
+2. Set the `RUNNER_AUTH_TOKEN` environment variable with a secure token:
+   ```bash
+   export RUNNER_AUTH_TOKEN="your-secure-token-here"
+   ```
+3. Run the server with `go run main.go`
+4. The server exposes:
    - GET `/health` - Health check endpoint
-   - POST `/update` - Webhook to trigger docker-compose commands
+   - POST `/update` - Webhook to trigger docker-compose commands (requires authentication)
+
+### Authentication
+
+The `/update` endpoint requires authentication using a Bearer token in the Authorization header. The token must match the value set in the `RUNNER_AUTH_TOKEN` environment variable.
+
+Example authenticated request:
+```bash
+curl -H "Authorization: Bearer your-secure-token-here" http://localhost:8080/update
+```
 
 ## Configuration
 

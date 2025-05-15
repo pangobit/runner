@@ -1,0 +1,17 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# @pangobit/maintainers will be requested for review when someone 
+# opens a pull request.
+*       @pangobit/maintainers
+
+# Go files
+*.go    @pangobit/go-developers
+
+# Configuration files
+*.yaml  @pangobit/devops
+
+# GitHub Actions workflows
+.github/workflows/  @pangobit/devops
+
+# Security-related files
+.github/SECURITY.md  @pangobit/security
